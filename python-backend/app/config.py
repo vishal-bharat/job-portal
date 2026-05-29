@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 24
 
+    # Job API keys — set these in docker-compose.yml environment section
+    jsearch_api_key: str = ""      # RapidAPI key for JSearch (LinkedIn jobs)
+    adzuna_app_id: str = ""        # Adzuna app ID
+    adzuna_app_key: str = ""       # Adzuna app key
+
     @property
     def database_url(self) -> str:
         return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

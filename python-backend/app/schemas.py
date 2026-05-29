@@ -62,7 +62,7 @@ class SkillGapItem(BaseModel):
 
 
 class JobResponse(BaseModel):
-    id: int
+    id: str                            # str so we can use "jsearch_xxx" / "adzuna_xxx" / "1"
     title: str
     company: str
     location: Optional[str]
@@ -74,6 +74,9 @@ class JobResponse(BaseModel):
     # BERT-specific additions
     missing_skills: list[str]          # skills in job that student doesn't have
     semantic_boost: bool               # True when BERT found semantic similarity beyond exact match
+    # Real-job additions
+    apply_url: Optional[str] = None    # direct apply link (LinkedIn / StepStone)
+    source: Optional[str] = None       # "linkedin" | "stepstone" | "seed"
 
     class Config:
         from_attributes = True

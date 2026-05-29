@@ -29,6 +29,8 @@ function normaliseJob(job) {
     semanticBoost:  job.semantic_boost  ?? job.semanticBoost  ?? false,
     postedDate:     job.posted_date     ?? job.postedDate,
     jobType:        job.job_type        ?? job.jobType,
+    applyUrl:       job.apply_url       ?? job.applyUrl       ?? null,
+    source:         job.source          ?? 'seed',
   };
 }
 
