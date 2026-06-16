@@ -16,8 +16,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.login(email, password);
-      setSession(res.token, { email: res.email, name: res.name });
+      await api.login(email, password);
       nav('/');
     } catch (err) {
       setError(err.message);
@@ -46,6 +45,9 @@ export default function Login() {
         </button>
 
         <div className="hint">Demo: <b>alex@gisma.edu</b> / <b>password123</b></div>
+        <div className="hint" style={{ marginTop: 6 }}>
+          New student? <a href="/signup" style={{ color: '#1a2238', fontWeight: 600 }}>Create account</a>
+        </div>
       </form>
     </div>
   );

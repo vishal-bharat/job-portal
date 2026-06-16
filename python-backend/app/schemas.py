@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 
@@ -86,3 +86,39 @@ class SkillGapResponse(BaseModel):
     """Global skill-gap analysis — which skills to learn next to unlock the most jobs."""
     top_missing: list[SkillGapItem]
     learning_path: list[str]           # ordered list: learn these first
+
+
+# ── Saved Applications ────────────────────────────────────────────────────────
+
+class SaveApplicationRequest(BaseModel):
+    external_job_id: str
+    title: str
+    company: str
+    location: Optional[str] = None
+    job_type: Optional[str] = None
+    salary: Optional[str] = None
+    apply_url: Optional[str] = None
+    source: Optional[str] = "seed"
+
+
+class UpdateApplicationStatusRequest(BaseModel):
+    status: str    # saved | applied | interviewing | offered | rejected
+    notes: Optional[str] = None
+
+
+class SavedApplicationResponse(BaseModel):
+    id: int
+    external_job_id: str
+    title: str
+    company: str
+    location: Optional[str]
+    job_type: Optional[str]
+    salary: Optional[str]
+    apply_url: Optional[str]
+    source: Optional[str]
+    status: str
+    notes: Optional[str]
+    saved_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True

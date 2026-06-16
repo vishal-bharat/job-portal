@@ -97,7 +97,7 @@ def _normalise_job(job) -> dict:
             "apply_url":      job.get("apply_url"),
             "source":         job.get("source", "seed"),
         }
-    # SQLAlchemy ORM object
+    # SQLAlchemy ORM object (seed jobs — skill-gap analysis only, not shown in recommendations)
     return {
         "id":             str(job.id),
         "title":          job.title,

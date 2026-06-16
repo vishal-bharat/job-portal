@@ -1,21 +1,19 @@
 """
-Real job fetching from JSearch (LinkedIn) and Adzuna (StepStone / German market).
+Real job fetching for GISMA Career Connect.
 
-Architecture:
-─────────────
-- JSearch via RapidAPI  → LinkedIn job listings with structured skills + apply links
-- Adzuna API            → StepStone and German job market listings
-- In-memory cache       → 30-minute TTL so we don't hammer free-tier quotas
-- Graceful fallback     → if either API fails or keys are missing, returns []
-                          and the router falls back to seed jobs automatically
+Sources:
+─────────
+- Bundesagentur für Arbeit API  → Official German Federal Employment Agency
+                                   No API key needed. Free. Berlin-focused.
+                                   Returns real jobs posted by German companies.
 
-How to get free API keys:
-──────────────────────────
-JSearch:  rapidapi.com → search "JSearch" → subscribe to free plan (200 req/month)
-Adzuna:   developer.adzuna.com → register → get app_id + app_key (200 req/day)
+- Adzuna API                    → StepStone and broader German job market
+                                   Free 200 req/day. Needs app_id + app_key.
 
-Add them to docker-compose.yml:
-  JSEARCH_API_KEY: your_rapidapi_key
+- In-memory cache               → 30-minute TTL per query
+- Graceful fallback             → returns [] if APIs fail; router uses seed jobs
+
+Adzuna keys (already set in docker-compose.yml):
   ADZUNA_APP_ID:   your_adzuna_app_id
   ADZUNA_APP_KEY:  your_adzuna_app_key
 """
@@ -25,6 +23,7 @@ import time
 import logging
 from datetime import date
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # ── In-memory cache ────────────────────────────────────────────────────────────
 _cache: dict[str, dict] = {}
-CACHE_TTL_SECONDS = 1800  # 30 minutes — safe for free-tier quotas
+CACHE_TTL_SECONDS = 1800  # 30 minutes
 
 
 def _get_cached(key: str):
@@ -52,92 +51,114 @@ def _set_cached(key: str, data: list):
 
 def build_query(student_skills: list[str], course: Optional[str]) -> str:
     """
-    Build a job search query from the student's top 3 skills + course domain.
-    Examples:
-      CS student with Python, ML    → "Python Machine Learning developer Germany"
-      Business student with Excel   → "Excel Business Analyst Germany"
+    Return a single short keyword that both Arbeitsagentur and Adzuna understand.
+    Shorter = more results. "Python" beats "Python Software Developer" every time.
     """
-    top = student_skills[:3]
-    query = " ".join(top)
+    PRIORITY = [
+        "Python", "JavaScript", "Java", "React", "SQL", "Machine Learning",
+        "Data Analysis", "TypeScript", "Node.js", "Docker", "AWS",
+        "Excel", "SAP", "Tableau", "Marketing", "Finance", "Figma",
+    ]
+    # Course-based fallback when no known skills match
+    COURSE_FALLBACK = {
+        "business": "Management", "management": "Management", "mba": "Management",
+        "marketing": "Marketing", "data": "Data Analyst", "analytics": "Data Analyst",
+        "design": "UX Designer", "computer": "Developer", "software": "Developer",
+        "it": "Developer", "finance": "Finance", "accounting": "Finance",
+    }
+    top_skill = next((s for s in PRIORITY if s in student_skills), None)
+    if top_skill:
+        return top_skill   # e.g. "Python" — clean single keyword
 
     if course:
-        cl = course.lower()
-        if any(w in cl for w in ["business", "management", "mba", "marketing"]):
-            query += " Business Analyst"
-        elif any(w in cl for w in ["computer", "software", "cs", "data", "it"]):
-            query += " Software Developer"
+        for kw, fallback in COURSE_FALLBACK.items():
+            if kw in course.lower():
+                return fallback
 
-    return (query.strip() + " Germany") or "Software Developer Germany"
+    return student_skills[0] if student_skills else "Developer"
 
 
-# ── JSearch (LinkedIn) ─────────────────────────────────────────────────────────
+# ── Bundesagentur für Arbeit (German Federal Employment Agency) ───────────────
 
-def _fetch_jsearch(query: str, n: int = 5) -> list[dict]:
-    if not settings.jsearch_api_key:
-        logger.warning("JSearch: no API key set, skipping")
-        return []
-    logger.info("JSearch: fetching query=%r", query)
+def _fetch_arbeitsagentur(query: str, n: int = 8) -> list[dict]:
+    """
+    Fetch jobs from the official German Federal Employment Agency.
+    No API key needed — public endpoint.
+    """
+    logger.info("Arbeitsagentur: fetching query=%r (Berlin)", query)
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=15) as client:
             resp = client.get(
-                "https://jsearch.p.rapidapi.com/search",
-                params={"query": query, "num_pages": "1", "date_posted": "month"},
+                "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
+                params={
+                    "was":  query,    # job keyword
+                    "wo":   "Berlin", # location
+                    "size": n,
+                    "page": 0,
+                },
                 headers={
-                    "X-RapidAPI-Key": settings.jsearch_api_key,
-                    "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+                    "X-API-Key":  "jobboerse-jobsuche",
+                    "User-Agent": "Mozilla/5.0 (compatible; GISMACareerConnect/1.0)",
                 },
             )
-            logger.info("JSearch: HTTP %s", resp.status_code)
+            logger.info("Arbeitsagentur: HTTP %s", resp.status_code)
             resp.raise_for_status()
-            jobs = resp.json().get("data", [])
-            logger.info("JSearch: got %d results", len(jobs))
-            return [_parse_jsearch(j) for j in jobs[:n]]
+            data = resp.json()
+            jobs = data.get("stellenangebote") or []
+            logger.info("Arbeitsagentur: got %d results", len(jobs))
+            return [_parse_arbeitsagentur(j) for j in jobs[:n]]
     except Exception as exc:
-        logger.error("JSearch: failed — %s", exc)
+        logger.error("Arbeitsagentur: failed — %s", exc)
         return []
 
 
-def _parse_jsearch(j: dict) -> dict:
-    # Try structured skills first, then extract from highlights
-    skills = j.get("job_required_skills") or []
-    if not skills:
-        qualifications = j.get("job_highlights", {}).get("Qualifications", [])
-        skills = [q for q in qualifications if len(q.split()) <= 4][:6]
+def _parse_arbeitsagentur(j: dict) -> dict:
+    ref_nr = j.get("refnr", "")
+    title  = j.get("titel", "")
+    arbeitgeber = j.get("arbeitgeber", "")
 
-    min_s = j.get("job_min_salary")
-    max_s = j.get("job_max_salary")
-    cur   = j.get("job_salary_currency") or "€"
-    salary = None
-    if min_s and max_s:
-        salary = f"{cur}{int(min_s):,} – {cur}{int(max_s):,}"
-    elif min_s:
-        salary = f"From {cur}{int(min_s):,}"
+    # Build the direct apply/detail URL on the official portal
+    apply_url = (
+        f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref_nr}"
+        if ref_nr else
+        f"https://www.arbeitsagentur.de/jobsuche/suche?was={quote(title)}&wo=Berlin"
+    )
 
-    emp_map = {"FULLTIME": "fulltime", "PARTTIME": "parttime",
-               "INTERN": "internship", "CONTRACTOR": "remote"}
-    job_type = emp_map.get((j.get("job_employment_type") or "").upper(), "fulltime")
+    # Location
+    arbeitsort = j.get("arbeitsort") or {}
+    city    = arbeitsort.get("ort") or "Berlin"
+    country = arbeitsort.get("land") or "Deutschland"
+    location = f"{city}, {country}"
 
-    city    = j.get("job_city") or ""
-    country = j.get("job_country") or ""
-    location = ", ".join(filter(None, [city, country]))
+    # Job type
+    raw_type = (j.get("arbeitszeitModelle") or [""])[0].upper()
+    type_map = {
+        "VOLLZEIT": "fulltime",
+        "TEILZEIT": "parttime",
+        "HOMEOFFICE": "remote",
+        "AUSBILDUNG": "internship",
+    }
+    job_type = type_map.get(raw_type, "fulltime")
+
+    # Posted date
+    eintrittsdatum = j.get("eintrittsdatum")
+    try:
+        posted = date.fromisoformat(eintrittsdatum[:10]) if eintrittsdatum else date.today()
+    except Exception:
+        posted = date.today()
 
     return {
-        "id": f"jsearch_{j.get('job_id', '')}",
-        "title": j.get("job_title", ""),
-        "company": j.get("employer_name", ""),
-        "location": location,
-        "job_type": job_type,
-        "salary": salary,
-        "posted_date": date.today(),
-        "required_skills": skills,
-        "apply_url": (
-            j.get("job_apply_link")
-            or j.get("job_google_link")
-            # fallback: LinkedIn job search for this title + company
-            or f"https://www.linkedin.com/jobs/search/?keywords={j.get('job_title', '').replace(' ', '%20')}%20{j.get('employer_name', '').replace(' ', '%20')}"
-        ),
-        "source": "linkedin",
-        "description": (j.get("job_description") or "")[:600],
+        "id":             f"ba_{ref_nr}",
+        "title":          title,
+        "company":        arbeitgeber,
+        "location":       location,
+        "job_type":       job_type,
+        "salary":         None,   # BA doesn't expose salary in search results
+        "posted_date":    posted,
+        "required_skills": [],    # extracted from description below
+        "apply_url":      apply_url,
+        "source":         "arbeitsagentur",
+        "description":    (j.get("stellenbeschreibung") or "")[:600],
     }
 
 
@@ -153,12 +174,11 @@ def _fetch_adzuna(query: str, n: int = 5) -> list[dict]:
             resp = client.get(
                 "https://api.adzuna.com/v1/api/jobs/de/search/1",
                 params={
-                    "app_id": settings.adzuna_app_id,
-                    "app_key": settings.adzuna_app_key,
-                    "what": query,
-                    "where": "Germany",
+                    "app_id":           settings.adzuna_app_id,
+                    "app_key":          settings.adzuna_app_key,
+                    "what":             query,
                     "results_per_page": n,
-                    "content-type": "application/json",
+                    "content-type":     "application/json",
                 },
             )
             logger.info("Adzuna: HTTP %s", resp.status_code)
@@ -180,22 +200,22 @@ def _parse_adzuna(j: dict) -> dict:
     elif min_s:
         salary = f"From €{int(min_s):,}"
 
+    title = j.get("title", "")
     return {
-        "id": f"adzuna_{j.get('id', '')}",
-        "title": j.get("title", ""),
-        "company": j.get("company", {}).get("display_name", ""),
-        "location": j.get("location", {}).get("display_name", "Germany"),
-        "job_type": "fulltime",
-        "salary": salary,
-        "posted_date": date.today(),
-        "required_skills": [],  # extracted from description later
+        "id":             f"adzuna_{j.get('id', '')}",
+        "title":          title,
+        "company":        j.get("company", {}).get("display_name", ""),
+        "location":       j.get("location", {}).get("display_name", "Berlin"),
+        "job_type":       "fulltime",
+        "salary":         salary,
+        "posted_date":    date.today(),
+        "required_skills": [],
         "apply_url": (
             j.get("redirect_url")
-            # fallback: StepStone search for this title
-            or f"https://www.stepstone.de/jobs/{j.get('title', '').replace(' ', '-').lower()}"
+            or f"https://www.stepstone.de/jobs/{title.replace(' ', '-').lower()}"
         ),
-        "source": "stepstone",
-        "description": (j.get("description") or "")[:600],
+        "source":         "adzuna",
+        "description":    (j.get("description") or "")[:600],
     }
 
 
@@ -215,33 +235,35 @@ KNOWN_SKILLS = [
 def extract_skills_from_description(description: str) -> list[str]:
     """Simple keyword match to extract known skills from a job description."""
     desc_lower = description.lower()
-    found = [s for s in KNOWN_SKILLS if s.lower() in desc_lower]
-    return found[:8]
+    return [s for s in KNOWN_SKILLS if s.lower() in desc_lower][:8]
 
 
 # ── Main public function ───────────────────────────────────────────────────────
 
 def fetch_real_jobs(student_skills: list[str], course: Optional[str] = None) -> list[dict]:
     """
-    Fetch up to 5 jobs from JSearch (LinkedIn) + 5 from Adzuna (StepStone).
-    Results are cached for 30 minutes per query.
-    Returns [] gracefully if both APIs are unavailable.
+    Fetch live Berlin jobs from:
+      - Bundesagentur für Arbeit (official German agency, no key needed) — up to 8
+      - Adzuna / StepStone (German market)                               — up to 5
+
+    Results cached 30 min. Returns [] gracefully if APIs are down.
     """
     query     = build_query(student_skills, course)
     cache_key = f"real_jobs::{query}"
 
     cached = _get_cached(cache_key)
     if cached is not None:
+        logger.info("Cache hit for query=%r", query)
         return cached
 
-    jsearch_jobs = _fetch_jsearch(query, n=5)
-    adzuna_jobs  = _fetch_adzuna(query, n=5)
+    ba_jobs    = _fetch_arbeitsagentur(query, n=8)
+    adzuna_jobs = _fetch_adzuna(query, n=5)
 
-    # For Adzuna jobs that have no skills, extract from description
-    for job in adzuna_jobs:
+    # Extract skills from descriptions where missing
+    for job in ba_jobs + adzuna_jobs:
         if not job["required_skills"] and job.get("description"):
             job["required_skills"] = extract_skills_from_description(job["description"])
 
-    all_jobs = jsearch_jobs + adzuna_jobs
+    all_jobs = ba_jobs + adzuna_jobs
     _set_cached(cache_key, all_jobs)
     return all_jobs

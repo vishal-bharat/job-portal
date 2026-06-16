@@ -39,9 +39,20 @@ async function request(path, options = {}) {
   return body;
 }
 
+// Login fetches profile after auth so we can store course in session
+async function loginAndStore(email, password) {
+  const res = await request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  setSession(res.token, { email: res.email, name: res.name });
+  // Fetch profile to get course for sidebar
+  try {
+    const profile = await request('/api/profile');
+    setSession(res.token, { email: res.email, name: res.name, course: profile.course });
+  } catch (_) {}
+  return res;
+}
+
 export const api = {
-  login: (email, password) =>
-    request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  login: loginAndStore,
   signup: (data) =>
     request('/api/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
   getProfile: () => request('/api/profile'),
@@ -54,5 +65,19 @@ export const api = {
     request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   recommendedJobs: (filter = 'all') =>
     request(`/api/jobs/recommended?filter=${encodeURIComponent(filter)}`),
+  searchJobs: (q) =>
+    request(`/api/jobs/search?q=${encodeURIComponent(q)}`),
   skillGap: () => request('/api/jobs/skill-gap'),
+
+  // Applications tracker
+  listApplications: () => request('/api/applications'),
+  saveApplication: (job) =>
+    request('/api/applications', { method: 'POST', body: JSON.stringify(job) }),
+  updateApplicationStatus: (id, status, notes) =>
+    request(`/api/applications/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, notes }),
+    }),
+  deleteApplication: (id) =>
+    request(`/api/applications/${id}`, { method: 'DELETE' }),
 };

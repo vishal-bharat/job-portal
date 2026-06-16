@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
 import JobCard from '../components/JobCard.jsx';
+import Loader  from '../components/Loader.jsx';
 import { api } from '../api/client.js';
 
 const FILTERS = [
@@ -38,7 +39,8 @@ export default function Dashboard() {
   const [profile, setProfile] = useState(null);
   const [allSkills, setAllSkills] = useState([]);
   const [jobs, setJobs] = useState([]);
-  const [skillGap, setSkillGap] = useState(null);   // { top_missing, learning_path }
+  const [skillGap, setSkillGap] = useState(null);
+  const [savedIds, setSavedIds] = useState([]);
   const [filter, setFilter] = useState('all');
   const [newSkill, setNewSkill] = useState('');
   const [error, setError] = useState('');
@@ -47,21 +49,39 @@ export default function Dashboard() {
   const refresh = async (currentFilter = filter) => {
     setError('');
     try {
-      const [p, s, j, gap] = await Promise.all([
+      const [p, s, j, gap, apps] = await Promise.all([
         api.getProfile(),
         api.allSkills(),
         api.recommendedJobs(currentFilter),
         api.skillGap(),
+        api.listApplications(),
       ]);
       setProfile(p);
       setAllSkills(s);
       setJobs(j.map(normaliseJob));
       setSkillGap(gap);
+      setSavedIds(apps.map(a => String(a.external_job_id)));
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveJob = async (job) => {
+    try {
+      await api.saveApplication({
+        external_job_id: String(job.id),
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        job_type: job.jobType,
+        salary: job.salary,
+        apply_url: job.applyUrl,
+        source: job.source,
+      });
+      setSavedIds(prev => [...new Set([...prev, String(job.id)])]);
+    } catch (e) { setError(e.message); }
   };
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
@@ -108,7 +128,14 @@ export default function Dashboard() {
     [jobs]
   );
 
-  if (loading) return <div className="app"><Sidebar /><div className="main"><p>Loading…</p></div></div>;
+  if (loading) return (
+    <div className="app">
+      <Sidebar />
+      <div className="main" style={{ gridTemplateColumns: '1fr' }}>
+        <Loader fullPage text="Finding your matched opportunities…" />
+      </div>
+    </div>
+  );
 
   return (
     <div className="app">
@@ -178,9 +205,16 @@ export default function Dashboard() {
               <h2 className="section-title" style={{ margin: 0 }}>Matched Opportunities</h2>
               <span style={{ fontSize: 12, color: '#6b7494' }}>{jobs.length} results</span>
             </div>
-            {jobs.length === 0
-              ? <div style={{ fontSize: 13, color: '#6b7494' }}>No matching opportunities. Try adding more skills.</div>
-              : jobs.map((j) => <JobCard key={j.id} job={j} />)}
+            {jobs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 20px', color: '#6b7494' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
+                <div style={{ fontWeight: 600, marginBottom: 6, color: '#1a2238' }}>No live jobs found right now</div>
+                <div style={{ fontSize: 13 }}>
+                  Try adding more skills or check back in 30 minutes — results are cached.
+                  You can also search directly in <a href="/browse" style={{ color: '#1a2238', fontWeight: 600 }}>Browse Jobs</a>.
+                </div>
+              </div>
+            ) : jobs.map((j) => <JobCard key={j.id} job={j} savedIds={savedIds} onSave={handleSaveJob} />)}
           </div>
         </div>
 

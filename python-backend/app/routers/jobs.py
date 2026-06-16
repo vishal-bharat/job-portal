@@ -6,7 +6,7 @@ from ..models import Job, Student
 from ..schemas import JobResponse, SkillGapResponse
 from ..auth import get_current_student
 from ..services import recommendation, skill_gap
-from ..services.job_fetcher import fetch_real_jobs
+from ..services import job_fetcher as jf
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -18,39 +18,40 @@ def recommended_jobs(
     db: Session = Depends(get_db),
 ):
     """
-    Returns jobs ranked by BERT semantic similarity to the student's skill set.
-
-    Sources:
-      1. Real jobs from JSearch (LinkedIn) + Adzuna (StepStone) — up to 10 live listings.
-      2. Seed jobs from the database — always present as fallback.
-
-    Each job includes match_percent, missing_skills, semantic_boost, apply_url, and source.
+    Returns REAL jobs from Arbeitsagentur + Adzuna ranked by BERT similarity.
+    No dummy seed data. If APIs return nothing, returns empty list.
     """
-    # 1. Seed jobs from DB (always available)
-    db_jobs = db.query(Job).all()
-
-    # 2. Real jobs from APIs (returns [] gracefully if keys missing or quota exceeded)
     student_skills = [s.name for s in student.skills]
-    real_jobs = fetch_real_jobs(student_skills, course=student.course)
+    real_jobs = jf.fetch_real_jobs(student_skills, course=student.course)
 
-    # 3. Merge — real API jobs first (fresher), then DB seeds
-    #    Deduplicate by normalised title+company to avoid showing the same job twice.
-    seen: set[str] = set()
-    merged = []
+    return recommendation.recommend(student, real_jobs, filter)
 
-    for job in real_jobs:
-        key = f"{job['title'].lower()}::{job['company'].lower()}"
-        if key not in seen:
-            seen.add(key)
-            merged.append(job)
 
-    for job in db_jobs:
-        key = f"{job.title.lower()}::{job.company.lower()}"
-        if key not in seen:
-            seen.add(key)
-            merged.append(job)
+@router.get("/search", response_model=list[JobResponse])
+def search_jobs(
+    q: str = Query(default="Developer"),
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    """
+    Keyword search — fetches live jobs from Arbeitsagentur + Adzuna,
+    scored by BERT against the student's profile. No dummy data.
+    """
+    cache_key = f"search::{q}"
+    cached = jf._get_cached(cache_key)
 
-    return recommendation.recommend(student, merged, filter)
+    if cached is None:
+        ba_jobs     = jf._fetch_arbeitsagentur(q, n=10)
+        adzuna_jobs = jf._fetch_adzuna(q, n=8)
+        for job in ba_jobs + adzuna_jobs:
+            if not job["required_skills"] and job.get("description"):
+                job["required_skills"] = jf.extract_skills_from_description(job["description"])
+        all_jobs = ba_jobs + adzuna_jobs
+        jf._set_cached(cache_key, all_jobs)
+    else:
+        all_jobs = cached
+
+    return recommendation.recommend(student, all_jobs, "all")
 
 
 @router.get("/skill-gap", response_model=SkillGapResponse)
@@ -59,9 +60,8 @@ def skill_gap_analysis(
     db: Session = Depends(get_db),
 ):
     """
-    Returns the student's personalised skill gap:
-    - top_missing: skills ranked by how many jobs they unlock
-    - learning_path: greedy-optimal order to learn them
+    Skill gap analysis uses seed jobs (structured skill data)
+    to compute which skills unlock the most opportunities.
     """
     jobs = db.query(Job).all()
     return skill_gap.analyse(student, jobs)

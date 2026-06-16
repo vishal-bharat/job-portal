@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO)
 
 from .database import engine, Base
-from .routers import auth, profile, skills, jobs
+from .routers import auth, profile, skills, jobs, applications
 
 # Create all tables if they don't exist yet
 # (The seed data.sql runs separately via docker-compose / Postgres init)
@@ -35,6 +35,7 @@ app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(skills.router)
 app.include_router(jobs.router)
+app.include_router(applications.router)
 
 
 @app.get("/health")

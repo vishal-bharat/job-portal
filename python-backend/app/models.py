@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Table, ForeignKey
+from sqlalchemy import Column, Integer, String, Date, DateTime, Table, ForeignKey, func
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -50,3 +50,25 @@ class Job(Base):
     posted_date = Column(Date)
 
     required_skills = relationship("Skill", secondary=job_skills, lazy="joined")
+
+
+class SavedApplication(Base):
+    """Tracks jobs a student has saved or applied to."""
+    __tablename__ = "saved_applications"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    student_id     = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    external_job_id = Column(String, nullable=False)   # e.g. "ba_abc123" or "adzuna_xyz"
+    title          = Column(String, nullable=False)
+    company        = Column(String, nullable=False)
+    location       = Column(String)
+    job_type       = Column(String)
+    salary         = Column(String)
+    apply_url      = Column(String)
+    source         = Column(String)                    # arbeitsagentur | stepstone | seed
+    # Student workflow status
+    status         = Column(String, default="saved")   # saved | applied | interviewing | offered | rejected
+    notes          = Column(String, default="")
+    saved_at       = Column(DateTime, server_default=func.now())
+
+    student = relationship("Student", backref="saved_applications")

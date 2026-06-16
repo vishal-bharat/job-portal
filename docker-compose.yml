@@ -29,12 +29,10 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       # ── Real job API keys ─────────────────────────────────────────────────
-      # JSearch (LinkedIn jobs via RapidAPI) — free 200 req/month
-      #   Get key: rapidapi.com → search "JSearch" → subscribe free plan
-      JSEARCH_API_KEY: "726b740e56msh836e6281d56fbf4p14bf98jsn5fad41d32402"
       # Adzuna (StepStone / German market) — free 200 req/day
       ADZUNA_APP_ID: "12d4a825"
       ADZUNA_APP_KEY: "94e7305370a8cbc1f028f2ac760e1bd9"
+      # Bundesagentur für Arbeit — no key needed, public API
     expose:
       - "8080"          # reachable inside the Docker network only
     depends_on:
