@@ -75,9 +75,21 @@ evaluator = evaluation.EmbeddingSimilarityEvaluator(
     name="gisma-eval",
 )
 
+# ── Helper: sentence-transformers >= 3.x returns a dict, older versions a float
+def get_spearman(result) -> float:
+    if isinstance(result, dict):
+        # Key is 'spearman_cosine' in newer versions
+        for key in ("spearman_cosine", "spearman_correlation", "spearman"):
+            if key in result:
+                return float(result[key])
+        # Fallback: take the first numeric value in the dict
+        return float(next(v for v in result.values() if isinstance(v, (int, float))))
+    return float(result)
+
 # ── 7. Evaluate base model BEFORE training (baseline) ─────────────────────────
 print("\n📊 Baseline (before fine-tuning):")
-baseline_score = evaluator(model, output_path=None)
+baseline_raw   = evaluator(model, output_path=None)
+baseline_score = get_spearman(baseline_raw)
 print(f"   Spearman correlation: {baseline_score:.4f}")
 
 # ── 8. Training ───────────────────────────────────────────────────────────────
@@ -108,7 +120,8 @@ model.fit(
 # ── 9. Final evaluation ───────────────────────────────────────────────────────
 print("\n📊 GISMABert (after fine-tuning):")
 final_model = SentenceTransformer("./gismabert")
-final_score = evaluator(final_model, output_path=None)
+final_raw   = evaluator(final_model, output_path=None)
+final_score = get_spearman(final_raw)
 print(f"   Spearman correlation: {final_score:.4f}")
 print(f"   Improvement over baseline: +{(final_score - baseline_score):.4f}")
 
