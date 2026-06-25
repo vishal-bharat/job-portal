@@ -171,6 +171,12 @@ def analyse_semantic(student: Student, jobs: list) -> SkillGapResponse:
 
     Advantage: handles semantic proximity (MySQL ≈ PostgreSQL) that
     exact keyword matching misses.
+
+    Domain filtering: a cosine similarity threshold (0.20) is applied so that
+    only domain-relevant jobs contribute — a Computer Science student will not
+    receive suggestions like "SAP" or "Excel" from Finance/HR jobs whose
+    similarity falls below the threshold. Fallback to top-5 ensures cold-start
+    students (sparse skill profiles) still receive suggestions.
     """
     model = _get_model()
 
@@ -196,8 +202,17 @@ def analyse_semantic(student: Student, jobs: list) -> SkillGapResponse:
     j_n = job_embs / (np.linalg.norm(job_embs, axis=1, keepdims=True) + 1e-9)
     sims = j_n @ s_n
 
-    K = min(30, len(valid_jobs))
-    top_idx = sims.argsort()[::-1][:K]
+    # Domain filter: only consider jobs that are genuinely similar to the student's
+    # profile. Without a threshold, a CS student's top-30 can include HR/Finance jobs
+    # and surface irrelevant skills like "Excel" or "SAP".
+    # Threshold 0.20 filters out cross-domain noise; guarantee at least 5 jobs so
+    # students with very sparse profiles still get suggestions.
+    SIMILARITY_THRESHOLD = 0.20
+    sorted_idx = sims.argsort()[::-1]
+    top_idx = [i for i in sorted_idx if sims[i] >= SIMILARITY_THRESHOLD]
+    if len(top_idx) < 5:
+        top_idx = sorted_idx[:5].tolist()   # fallback for cold-start / sparse profiles
+    top_idx = top_idx[:30]                  # cap at 30 regardless
 
     student_set = {s.name.lower() for s in student.skills}
     skill_weight: dict[str, float] = defaultdict(float)
@@ -268,9 +283,18 @@ def analyse_rag(student: Student, jobs: list) -> SkillGapResponse:
     j_n = job_embs / (np.linalg.norm(job_embs, axis=1, keepdims=True) + 1e-9)
     scores = j_n @ q_n
 
-    # Retrieve top 60 % of jobs, capped at 25 — wide enough for small corpora
-    K = min(max(int(len(valid_jobs) * 0.6), 12), 25)
-    retrieved = [valid_jobs[i] for i in scores.argsort()[::-1][:K]]
+    # Retrieve jobs that are genuinely relevant: above similarity threshold OR
+    # top-60% of corpus (whichever gives more jobs), capped at 25.
+    # The threshold prevents cross-domain jobs (e.g. HR/Finance for a CS student)
+    # from polluting the retrieved context.
+    SIMILARITY_THRESHOLD = 0.20
+    sorted_idx = scores.argsort()[::-1]
+    threshold_idx = [i for i in sorted_idx if scores[i] >= SIMILARITY_THRESHOLD]
+    pct_idx = sorted_idx[:min(max(int(len(valid_jobs) * 0.6), 12), 25)].tolist()
+    # Union: threshold-passing jobs first, then fill up to pct_K if fewer than 12 pass
+    combined = list(dict.fromkeys(threshold_idx + pct_idx))  # preserves order, deduplicates
+    K = min(25, max(12, len(threshold_idx)))
+    retrieved = [valid_jobs[i] for i in combined[:K]]
 
     student_set = {s.name.lower() for s in student.skills}
     skill_to_jobs: dict[str, set] = defaultdict(set)
