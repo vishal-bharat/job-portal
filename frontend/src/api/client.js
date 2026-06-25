@@ -33,7 +33,7 @@ async function request(path, options = {}) {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const msg = body?.error || `Request failed (${res.status})`;
+    const msg = body?.detail || body?.error || `Request failed (${res.status})`;
     throw new Error(msg);
   }
   return body;
@@ -68,6 +68,7 @@ export const api = {
   searchJobs: (q) =>
     request(`/api/jobs/search?q=${encodeURIComponent(q)}`),
   skillGap: () => request('/api/jobs/skill-gap'),
+  trends: () => request('/api/jobs/trends'),
 
   // Applications tracker
   listApplications: () => request('/api/applications'),

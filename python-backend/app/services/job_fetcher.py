@@ -222,13 +222,29 @@ def _parse_adzuna(j: dict) -> dict:
 # ── Skill extraction from description ──────────────────────────────────────────
 
 KNOWN_SKILLS = [
-    "Python", "JavaScript", "TypeScript", "Java", "React", "Node.js",
-    "SQL", "PostgreSQL", "MongoDB", "Docker", "Kubernetes", "AWS",
-    "Machine Learning", "Deep Learning", "Data Analysis", "Pandas",
-    "TensorFlow", "PyTorch", "REST APIs", "Spring Boot", "Git",
-    "Agile", "Scrum", "Excel", "Tableau", "Power BI", "Figma",
-    "UI/UX", "Marketing", "SEO", "Finance", "Accounting", "SAP",
-    "Project Management", "Communication", "Leadership", "C++", "C#",
+    # ── Core programming ──────────────────────────────────────────────────────
+    "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "Go", "Rust",
+    # ── Web / frontend ────────────────────────────────────────────────────────
+    "React", "Vue.js", "Angular", "Node.js", "Next.js", "REST APIs", "GraphQL",
+    "HTML", "CSS", "Spring Boot",
+    # ── Data & databases ──────────────────────────────────────────────────────
+    "SQL", "PostgreSQL", "MongoDB", "Redis", "Elasticsearch",
+    "Data Analysis", "Pandas", "NumPy", "Excel", "Tableau", "Power BI",
+    # ── ML / AI — classic ─────────────────────────────────────────────────────
+    "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch",
+    "Scikit-learn", "Computer Vision", "NLP",
+    # ── Generative AI & LLM skills (new & fast-growing) ──────────────────────
+    "LLM", "Large Language Models", "RAG", "Retrieval-Augmented Generation",
+    "LangChain", "LlamaIndex", "Prompt Engineering", "Fine-tuning",
+    "Agentic AI", "AI Agents", "OpenAI API", "Hugging Face",
+    "Vector Database", "Embeddings", "ChatGPT", "GPT-4",
+    # ── DevOps / cloud ────────────────────────────────────────────────────────
+    "Docker", "Kubernetes", "AWS", "Azure", "GCP", "CI/CD", "Git",
+    "Terraform", "Linux",
+    # ── Business / management ─────────────────────────────────────────────────
+    "Agile", "Scrum", "Jira", "Project Management",
+    "SAP", "Finance", "Accounting", "Marketing", "SEO",
+    "Figma", "UI/UX", "Power BI", "Leadership", "Communication",
 ]
 
 
@@ -236,6 +252,83 @@ def extract_skills_from_description(description: str) -> list[str]:
     """Simple keyword match to extract known skills from a job description."""
     desc_lower = description.lower()
     return [s for s in KNOWN_SKILLS if s.lower() in desc_lower][:8]
+
+
+# ── Trends: aggregate skill/role frequencies from live jobs ───────────────────
+
+TRENDS_CACHE_TTL = 3600  # 1 hour — trends don't need to be real-time
+
+# Broad set of queries that give a representative Berlin market sample
+_TREND_QUERIES = [
+    "Python", "Data", "Marketing", "SAP",
+    "Developer", "Designer", "Finance", "Machine Learning",
+]
+
+# Role title patterns → canonical role names shown in the UI
+_ROLE_PATTERNS: list[tuple[str, list[str]]] = [
+    ("ML / AI Engineer",       ["machine learning", "ai engineer", "ml engineer", "data scientist", "künstliche intelligenz"]),
+    ("Data Engineer",          ["data engineer", "data engineering"]),
+    ("Data Analyst",           ["data analyst", "data analysis", "datenanalyst"]),
+    ("Software Developer",     ["software developer", "software engineer", "entwickler", "full stack", "backend developer", "frontend developer"]),
+    ("Cloud / DevOps",         ["devops", "cloud engineer", "platform engineer", "site reliability", "infrastructure"]),
+    ("Business Analyst",       ["business analyst", "unternehmensberater"]),
+    ("Product Manager",        ["product manager", "product owner", "produktmanager"]),
+    ("Marketing Manager",      ["marketing manager", "marketing specialist", "digital marketing", "performance marketing"]),
+    ("UX / Product Designer",  ["ux designer", "ui designer", "product designer", "ux/ui", "user experience"]),
+    ("SAP Consultant",         ["sap consultant", "sap berater", "sap developer"]),
+    ("Finance / Controller",   ["finance analyst", "financial analyst", "controller", "finanzanalyst", "buchhalter"]),
+]
+
+
+def fetch_trends_data() -> dict:
+    """
+    Fetch jobs across multiple Bundesagentur queries and compute:
+      - Top skills by frequency across all job descriptions
+      - Top roles by frequency of matching job titles
+
+    Results cached for 1 hour. Returns empty lists gracefully if APIs are down.
+    """
+    cache_key = "trends::v1"
+    entry = _cache.get(cache_key)
+    if entry and (time.time() - entry["ts"]) < TRENDS_CACHE_TTL:
+        logger.info("Trends cache hit")
+        return entry["data"]
+
+    logger.info("Trends: fetching %d queries from Bundesagentur", len(_TREND_QUERIES))
+    all_jobs: list[dict] = []
+    for q in _TREND_QUERIES:
+        jobs = _fetch_arbeitsagentur(q, n=10)
+        all_jobs.extend(jobs)
+
+    # Count skill occurrences across all descriptions + titles
+    skill_counts: dict[str, int] = {}
+    for job in all_jobs:
+        text = (job.get("description") or "") + " " + (job.get("title") or "")
+        for s in extract_skills_from_description(text):
+            skill_counts[s] = skill_counts.get(s, 0) + 1
+
+    # Count role occurrences from job titles
+    role_counts: dict[str, int] = {}
+    for job in all_jobs:
+        title_lower = (job.get("title") or "").lower()
+        for role, patterns in _ROLE_PATTERNS:
+            if any(p in title_lower for p in patterns):
+                role_counts[role] = role_counts.get(role, 0) + 1
+
+    top_skills = sorted(skill_counts.items(), key=lambda x: -x[1])[:10]
+    top_roles  = sorted(role_counts.items(),  key=lambda x: -x[1])[:10]
+
+    result = {
+        "total_jobs_fetched": len(all_jobs),
+        "top_skills": [{"name": s, "count": c} for s, c in top_skills],
+        "top_roles":  [{"role": r, "count": c} for r, c in top_roles],
+        "last_updated": time.strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+    _cache[cache_key] = {"data": result, "ts": time.time()}
+    logger.info("Trends: fetched %d jobs → %d skills, %d roles",
+                len(all_jobs), len(top_skills), len(top_roles))
+    return result
 
 
 # ── Main public function ───────────────────────────────────────────────────────

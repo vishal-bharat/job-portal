@@ -37,7 +37,7 @@ export default function Signup() {
         year: form.year ? Number(form.year) : null,
       });
       setSession(res.token, { email: res.email, name: res.name, course: form.course });
-      nav('/');
+      nav('/onboarding');
     } catch (err) {
       setError(err.message);
     } finally {

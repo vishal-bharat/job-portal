@@ -88,6 +88,29 @@ class SkillGapResponse(BaseModel):
     learning_path: list[str]           # ordered list: learn these first
 
 
+# ── Market Trends ─────────────────────────────────────────────────────────────
+
+class TrendsSkillItem(BaseModel):
+    name: str
+    count: int
+
+
+class TrendsRoleItem(BaseModel):
+    role: str
+    count: int
+
+
+class TrendsResponse(BaseModel):
+    """
+    Live market trends computed from Bundesagentur job postings.
+    Skills and roles ranked by frequency across all fetched descriptions.
+    """
+    total_jobs_fetched: int
+    top_skills: list[TrendsSkillItem]
+    top_roles: list[TrendsRoleItem]
+    last_updated: str
+
+
 # ── Saved Applications ────────────────────────────────────────────────────────
 
 class SaveApplicationRequest(BaseModel):

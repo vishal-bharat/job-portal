@@ -12,14 +12,6 @@ const FILTERS = [
   { key: 'parttime', label: 'Part-time' },
 ];
 
-const TRENDING = [
-  { role: 'ML Engineer', openings: '1,240 openings', change: '+34%' },
-  { role: 'Product Designer', openings: '890 openings', change: '+22%' },
-  { role: 'Data Analyst', openings: '2,110 openings', change: '+19%' },
-  { role: 'Full Stack Dev', openings: '3,450 openings', change: '+15%' },
-  { role: 'Cybersecurity Analyst', openings: '670 openings', change: '+41%' },
-];
-
 // Normalise a raw job object from the Python backend (snake_case → camelCase)
 function normaliseJob(job) {
   return {
@@ -41,7 +33,8 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState([]);
   const [skillGap, setSkillGap] = useState(null);
   const [savedIds, setSavedIds] = useState([]);
-  const [filter, setFilter] = useState('all');
+  const savedPrefs = (() => { try { return JSON.parse(localStorage.getItem('cc_prefs') || '{}'); } catch { return {}; } })();
+  const [filter, setFilter] = useState(savedPrefs.jobType || 'all');
   const [newSkill, setNewSkill] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -106,15 +99,6 @@ export default function Dashboard() {
     setFilter(key);
     refresh(key);
   };
-
-  // Per-skill: how many jobs require it
-  const skillStats = useMemo(() => {
-    if (!profile) return [];
-    return profile.skills.map((s) => ({
-      name: s,
-      count: jobs.filter((j) => j.requiredSkills.some((rs) => rs.toLowerCase() === s.toLowerCase())).length
-    }));
-  }, [profile, jobs]);
 
   // Suggested skills the student doesn't have yet
   const suggested = useMemo(() => {
@@ -218,39 +202,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right column */}
+        {/* Right column — Skill Gap only */}
         <div className="right-col">
-          <div className="card">
-            <h2 className="section-title">Your Skills · Job Matches</h2>
-            {skillStats.length === 0 && <div style={{ fontSize: 13, color: '#6b7494' }}>No skills yet.</div>}
-            {skillStats.map((s) => (
-              <div key={s.name} style={{ marginBottom: 8 }}>
-                <div className="label-row" style={{ borderBottom: 'none', padding: '2px 0' }}>
-                  <span>{s.name}</span>
-                  <span style={{ color: '#6b7494' }}>{s.count} jobs</span>
-                </div>
-                <div className="bar"><span style={{ width: `${Math.min(100, s.count * 25)}%` }} /></div>
-              </div>
-            ))}
-          </div>
-
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <h2 className="section-title" style={{ margin: 0 }}>Trending Roles</h2>
-              <span style={{ fontSize: 12, color: '#6b7494' }}>View more</span>
-            </div>
-            {TRENDING.map((t) => (
-              <div key={t.role} className="label-row">
-                <div>
-                  <div style={{ fontWeight: 600 }}>{t.role}</div>
-                  <div style={{ fontSize: 11, color: '#6b7494' }}>{t.openings}</div>
-                </div>
-                <div style={{ color: '#2a9d8f', fontWeight: 600 }}>↑ {t.change}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Skill Gap card — powered by the backend's greedy set-cover algorithm */}
           <div className="card">
             <h2 className="section-title">🎓 Your Skill Gap Analysis</h2>
 

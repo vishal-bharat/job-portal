@@ -6,8 +6,8 @@ export default function Login() {
   const nav = useNavigate();
   if (getUser()) { nav('/', { replace: true }); }
 
-  const [email, setEmail] = useState('alex@gisma.edu');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -44,9 +44,8 @@ export default function Login() {
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <div className="hint">Demo: <b>alex@gisma.edu</b> / <b>password123</b></div>
         <div className="hint" style={{ marginTop: 6 }}>
-          New student? <a href="/signup" style={{ color: '#1a2238', fontWeight: 600 }}>Create account</a>
+          New student? <a href="/signup" style={{ color: '#1a2238', fontWeight: 600 }}>Create account →</a>
         </div>
       </form>
     </div>

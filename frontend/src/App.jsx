@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login        from './pages/Login.jsx';
 import Signup       from './pages/Signup.jsx';
+import Onboarding   from './pages/Onboarding.jsx';
 import Dashboard    from './pages/Dashboard.jsx';
 import Profile      from './pages/Profile.jsx';
 import Applications from './pages/Applications.jsx';
@@ -17,8 +18,9 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/login"  element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
+      <Route path="/login"      element={<Login />} />
+      <Route path="/signup"     element={<Signup />} />
+      <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
 
       <Route path="/"            element={<RequireAuth><Dashboard /></RequireAuth>} />
       <Route path="/profile"     element={<RequireAuth><Profile /></RequireAuth>} />

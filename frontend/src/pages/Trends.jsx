@@ -1,39 +1,37 @@
+import { useEffect, useState } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
-
-const TRENDING_ROLES = [
-  { role: 'AI / ML Engineer',        change: '+41%', demand: 92, salary: '€65,000–90,000', skills: ['Python', 'PyTorch', 'TensorFlow', 'AWS'] },
-  { role: 'Cybersecurity Analyst',   change: '+38%', demand: 87, salary: '€55,000–78,000', skills: ['Linux', 'Network Security', 'Python'] },
-  { role: 'Data Engineer',           change: '+34%', demand: 85, salary: '€60,000–85,000', skills: ['Python', 'SQL', 'Apache Spark', 'AWS'] },
-  { role: 'Full Stack Developer',    change: '+22%', demand: 78, salary: '€52,000–75,000', skills: ['React', 'Node.js', 'TypeScript', 'Docker'] },
-  { role: 'Data Analyst',            change: '+19%', demand: 75, salary: '€45,000–62,000', skills: ['SQL', 'Python', 'Tableau', 'Excel'] },
-  { role: 'Product Manager',         change: '+17%', demand: 70, salary: '€58,000–80,000', skills: ['Agile', 'Scrum', 'Jira', 'Communication'] },
-  { role: 'UX / Product Designer',   change: '+15%', demand: 65, salary: '€48,000–68,000', skills: ['Figma', 'UI/UX', 'User Research'] },
-  { role: 'Business Analyst',        change: '+13%', demand: 62, salary: '€48,000–65,000', skills: ['Excel', 'SQL', 'Tableau', 'SAP'] },
-  { role: 'Cloud / DevOps Engineer', change: '+12%', demand: 60, salary: '€62,000–88,000', skills: ['Docker', 'Kubernetes', 'AWS', 'Terraform'] },
-  { role: 'SAP Consultant',          change: '+10%', demand: 55, salary: '€55,000–80,000', skills: ['SAP', 'ERP', 'Finance'] },
-];
-
-const IN_DEMAND_SKILLS = [
-  { name: 'Python',          heat: 95 },
-  { name: 'SQL',             heat: 88 },
-  { name: 'Machine Learning',heat: 82 },
-  { name: 'React',           heat: 78 },
-  { name: 'Docker',          heat: 75 },
-  { name: 'AWS',             heat: 73 },
-  { name: 'TypeScript',      heat: 70 },
-  { name: 'Tableau',         heat: 65 },
-  { name: 'SAP',             heat: 62 },
-  { name: 'Excel',           heat: 60 },
-];
-
-const MARKET_INSIGHTS = [
-  { icon: '🏢', stat: '12,400+', label: 'Tech jobs in Berlin' },
-  { icon: '💶', stat: '€62,000', label: 'Avg. tech salary (Berlin)' },
-  { icon: '📈', stat: '+28%',    label: 'YoY job growth (2024→2025)' },
-  { icon: '🌍', stat: '68%',     label: 'Jobs open to international students' },
-];
+import Loader  from '../components/Loader.jsx';
+import { api } from '../api/client.js';
 
 export default function Trends() {
+  const [data, setData]     = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]   = useState('');
+
+  useEffect(() => {
+    api.trends()
+      .then(setData)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="app"><Sidebar />
+      <div className="main" style={{ gridTemplateColumns: '1fr' }}>
+        <Loader fullPage text="Fetching live Berlin job market data…" />
+      </div>
+    </div>
+  );
+
+  const topSkills = data?.top_skills || [];
+  const topRoles  = data?.top_roles  || [];
+  const total     = data?.total_jobs_fetched || 0;
+  const updated   = data?.last_updated || '';
+
+  // For the bar charts we need a maximum count to normalise widths
+  const maxSkillCount = topSkills.reduce((m, s) => Math.max(m, s.count), 1);
+  const maxRoleCount  = topRoles.reduce( (m, r) => Math.max(m, r.count), 1);
+
   return (
     <div className="app">
       <Sidebar />
@@ -41,27 +39,56 @@ export default function Trends() {
         <div>
           <h1 className="page-title">📈 Market Trends · Berlin</h1>
 
-          {/* Market stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-            {MARKET_INSIGHTS.map(m => (
-              <div key={m.label} className="card" style={{ textAlign: 'center', marginBottom: 0 }}>
-                <div style={{ fontSize: 28, marginBottom: 4 }}>{m.icon}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a2238' }}>{m.stat}</div>
-                <div style={{ fontSize: 11, color: '#6b7494', marginTop: 4 }}>{m.label}</div>
+          {error && (
+            <div className="error">
+              Could not load live market data: {error}. Please try again in a moment.
+            </div>
+          )}
+
+          {/* Live data summary row */}
+          {!error && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div className="card" style={{ textAlign: 'center', marginBottom: 0 }}>
+                <div style={{ fontSize: 28, marginBottom: 4 }}>📋</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a2238' }}>{total}</div>
+                <div style={{ fontSize: 11, color: '#6b7494', marginTop: 4 }}>Live jobs sampled</div>
               </div>
-            ))}
-          </div>
+              <div className="card" style={{ textAlign: 'center', marginBottom: 0 }}>
+                <div style={{ fontSize: 28, marginBottom: 4 }}>🔧</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a2238' }}>{topSkills.length}</div>
+                <div style={{ fontSize: 11, color: '#6b7494', marginTop: 4 }}>Distinct skills tracked</div>
+              </div>
+              <div className="card" style={{ textAlign: 'center', marginBottom: 0 }}>
+                <div style={{ fontSize: 28, marginBottom: 4 }}>💼</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a2238' }}>{topRoles.length}</div>
+                <div style={{ fontSize: 11, color: '#6b7494', marginTop: 4 }}>Role categories found</div>
+              </div>
+            </div>
+          )}
 
           {/* Trending roles */}
           <div className="card">
-            <h2 className="section-title">🔥 Fastest-Growing Roles in Germany</h2>
+            <h2 className="section-title">🔥 Most In-Demand Roles in Berlin</h2>
             <p style={{ fontSize: 13, color: '#6b7494', marginTop: 0 }}>
-              Year-over-year job posting growth on German job boards.
+              Ranked by number of active job postings on Bundesagentur für Arbeit.
+              {updated && (
+                <span style={{ marginLeft: 8, color: '#9ca3af', fontSize: 11 }}>
+                  Updated {updated}
+                </span>
+              )}
             </p>
-            {TRENDING_ROLES.map((r, i) => (
+
+            {topRoles.length === 0 && !error && (
+              <div style={{ color: '#6b7494', fontSize: 13 }}>
+                No role data available right now — the Bundesagentur API may be temporarily unavailable.
+              </div>
+            )}
+
+            {topRoles.map((r, i) => (
               <div key={r.role} style={{
                 display: 'flex', alignItems: 'center', gap: 14,
-                padding: '12px 0', borderBottom: i < TRENDING_ROLES.length - 1 ? '1px solid #f0f2f8' : 'none',
+                padding: '12px 0',
+                borderBottom: i < topRoles.length - 1 ? '1px solid #f0f2f8' : 'none',
               }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 8,
@@ -71,14 +98,16 @@ export default function Trends() {
                 }}>{i + 1}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{r.role}</div>
-                  <div style={{ fontSize: 11, color: '#6b7494', marginTop: 3 }}>
-                    {r.salary} · Skills: {r.skills.join(', ')}
-                  </div>
                   <div style={{ marginTop: 6, background: '#f0f2f8', borderRadius: 4, height: 4, overflow: 'hidden' }}>
-                    <div style={{ width: `${r.demand}%`, height: '100%', background: '#c9f04d' }} />
+                    <div style={{
+                      width: `${Math.round((r.count / maxRoleCount) * 100)}%`,
+                      height: '100%', background: '#c9f04d',
+                    }} />
                   </div>
                 </div>
-                <div style={{ color: '#2a9d8f', fontWeight: 700, fontSize: 15, flexShrink: 0 }}>↑ {r.change}</div>
+                <div style={{ color: '#2a9d8f', fontWeight: 700, fontSize: 14, flexShrink: 0, minWidth: 60, textAlign: 'right' }}>
+                  {r.count} job{r.count !== 1 ? 's' : ''}
+                </div>
               </div>
             ))}
           </div>
@@ -89,35 +118,41 @@ export default function Trends() {
           <div className="card">
             <h2 className="section-title">⚡ Most In-Demand Skills</h2>
             <p style={{ fontSize: 12, color: '#6b7494', marginTop: 0 }}>
-              Based on Berlin job postings.
+              Extracted from live Berlin job descriptions (Bundesagentur).
             </p>
-            {IN_DEMAND_SKILLS.map(s => (
+
+            {topSkills.length === 0 && !error && (
+              <div style={{ color: '#6b7494', fontSize: 13 }}>
+                No skill data available right now.
+              </div>
+            )}
+
+            {topSkills.map(s => (
               <div key={s.name} style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
                   <span style={{ fontWeight: 500 }}>{s.name}</span>
-                  <span style={{ color: '#6b7494', fontSize: 11 }}>{s.heat}% of jobs</span>
+                  <span style={{ color: '#6b7494', fontSize: 11 }}>
+                    {s.count} job{s.count !== 1 ? 's' : ''}
+                  </span>
                 </div>
                 <div className="bar">
-                  <span style={{ width: `${s.heat}%`, background: s.heat >= 80 ? '#c9f04d' : '#a8d8a8' }} />
+                  <span style={{
+                    width: `${Math.round((s.count / maxSkillCount) * 100)}%`,
+                    background: s.count / maxSkillCount >= 0.7 ? '#c9f04d' : '#a8d8a8',
+                  }} />
                 </div>
               </div>
             ))}
           </div>
 
           <div className="card">
-            <h2 className="section-title">🎓 GISMA Programmes in Demand</h2>
-            {[
-              { course: 'Data Science & Analytics', match: '94%' },
-              { course: 'Computer Science',          match: '91%' },
-              { course: 'Digital Business',          match: '85%' },
-              { course: 'Business Administration',   match: '78%' },
-              { course: 'Marketing Management',      match: '72%' },
-            ].map(p => (
-              <div key={p.course} className="label-row">
-                <span style={{ fontSize: 13 }}>{p.course}</span>
-                <span style={{ color: '#2a9d8f', fontWeight: 600, fontSize: 13 }}>{p.match}</span>
-              </div>
-            ))}
+            <h2 className="section-title">ℹ️ Data Source</h2>
+            <p style={{ fontSize: 13, color: '#6b7494', lineHeight: 1.6, marginBottom: 0 }}>
+              This page queries the <strong>Bundesagentur für Arbeit</strong> (Germany's Federal
+              Employment Agency) in real time across 8 job categories. Skills are extracted
+              from live job descriptions using our keyword extraction engine. Data is refreshed
+              every hour.
+            </p>
           </div>
         </div>
       </div>
