@@ -14,8 +14,11 @@ from .database import engine, Base
 from .routers import auth, profile, skills, jobs, applications
 
 # Create all tables if they don't exist yet
-# (The seed data.sql runs separately via docker-compose / Postgres init)
 Base.metadata.create_all(bind=engine)
+
+# Auto-seed jobs on startup if the jobs table is empty
+from .seed_jobs import run as _seed_jobs
+_seed_jobs()
 
 app = FastAPI(
     title="GISMA Career Connect API",
